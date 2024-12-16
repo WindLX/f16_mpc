@@ -32,7 +32,7 @@ class GradientDescentSolverBase:
         func: callable,
         constraints: Optional[callable],
         x0: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         raise NotImplementedError("solve method not implemented")
 
 
@@ -42,10 +42,11 @@ class ProjectionGradientDescentSolver(GradientDescentSolverBase):
         func: callable,
         constraints: Optional[callable],
         x0: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         x = x0
         y, grad = func(x)
         history = [y]
+        gradient_history = [np.linalg.norm(grad)]
 
         for i in range(self.max_iters):
             if np.linalg.norm(grad) < self.tol:
@@ -65,15 +66,17 @@ class ProjectionGradientDescentSolver(GradientDescentSolverBase):
 
             y, grad = func(x)
             history.append(y)
+            gradient_history = [np.linalg.norm(grad)]
 
         history = np.array(history)
+        gradient_history = np.array(gradient_history)
 
         if self.log_interval > 0:
             print(
                 f"Final Objective Function Value: {history[-1]}, Gradient Norm: {np.linalg.norm(grad)}"
             )
 
-        return x, history
+        return x, history, gradient_history
 
 
 class MomentumGradientDescentSolver(GradientDescentSolverBase):
@@ -93,10 +96,11 @@ class MomentumGradientDescentSolver(GradientDescentSolverBase):
         func: callable,
         constraints: Optional[callable],
         x0: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         x = x0
         y, grad = func(x)
         history = [y]
+        gradient_history = [np.linalg.norm(grad)]
 
         v = np.zeros_like(x)
 
@@ -119,15 +123,17 @@ class MomentumGradientDescentSolver(GradientDescentSolverBase):
 
             y, grad = func(x)
             history.append(y)
+            gradient_history.append(np.linalg.norm(grad))
 
         history = np.array(history)
+        gradient_history = np.array(gradient_history)
 
         if self.log_interval > 0:
             print(
                 f"Final Objective Function Value: {history[-1]}, Gradient Norm: {np.linalg.norm(grad)}"
             )
 
-        return x, history
+        return x, history, gradient_history
 
 
 class AdamSolver(GradientDescentSolverBase):
@@ -151,10 +157,11 @@ class AdamSolver(GradientDescentSolverBase):
         func: callable,
         constraints: Optional[callable],
         x0: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         x = x0
         y, grad = func(x)
         history = [y]
+        gradient_history = [np.linalg.norm(grad)]
 
         m = np.zeros_like(x)
         v = np.zeros_like(x)
@@ -186,15 +193,17 @@ class AdamSolver(GradientDescentSolverBase):
 
             y, grad = func(x)
             history.append(y)
+            gradient_history.append(np.linalg.norm(grad))
 
         history = np.array(history)
+        gradient_history = np.array(gradient_history)
 
         if self.log_interval > 0:
             print(
                 f"Final Objective Function Value: {history[-1]}, Gradient Norm: {np.linalg.norm(grad)}"
             )
 
-        return x, history
+        return x, history, gradient_history
 
 
 if __name__ == "__main__":

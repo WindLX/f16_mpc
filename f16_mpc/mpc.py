@@ -152,33 +152,25 @@ class MPC:
         H = S_bar.T @ Q_bar @ S_bar + R_bar
         F = (E_bar.T + x0.T @ T_bar.T) @ Q_bar @ S_bar
         Y = (E_bar.T + x0.T @ T_bar.T) @ Q_bar @ (
-            E_bar + x0.T @ T_bar.T
+            E_bar + T_bar @ x0
         ) + x0.T @ self.Q @ x0
 
         # Check if H is positive definite
-        # def is_positive_definite(matrix: np.ndarray) -> bool:
-        #     for i in range(1, matrix.shape[0] + 1):
-        #         if np.linalg.det(matrix[:i, :i]) <= -1e-100:
-        #             return False
-        #     return True
-
-        # if not is_positive_definite(H):
-        #     raise ValueError(
-        #         "The matrix H is not positive definite, the problem might not be convex."
-        #     )
-        if not np.all(np.linalg.eigvals(H) >= -1e-10):
+        if not np.all(np.linalg.eigvals(H) >= -1e-20):
             raise ValueError(
                 "The matrix H is not positive definite, the problem might not be convex."
             )
 
         def func(u: np.ndarray) -> float:
             cost = u.T @ H @ u + F @ u + u.T @ F.T + Y
-            grad_u = 2 * H @ u + F + F.T
+            grad_u = 2 * H @ u + 2 * F
             return cost, grad_u
 
         return func
 
-    def solve(self, x0: np.ndarray, u0: Optional[np.ndarray] = None) -> np.ndarray:
+    def solve(
+        self, x0: np.ndarray, u0: Optional[np.ndarray] = None
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Solves the MPC optimization problem.
 
@@ -195,14 +187,14 @@ class MPC:
             u0 = np.zeros((self.prediction_horizon, self.model.control_shape))
         u0 = u0.flatten()
 
-        u, _ = self.solver.solve(
+        u, history, gradient_history = self.solver.solve(
             self.objective_func(x0),
             self.constraints(x0),
             u0,
         )
 
         u = u.reshape(self.prediction_horizon, -1)
-        return u[0]
+        return u[0], history, gradient_history
 
     @property
     def prediction_horizon(self) -> int:

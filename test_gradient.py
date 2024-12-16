@@ -78,11 +78,6 @@ def plot(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="F16 MPC Simulation")
-    parser.add_argument("--render", action="store_true", help="Enable rendering")
-    args = parser.parse_args()
-    is_render = args.render
-
     logging.basicConfig(level=logging.ERROR)
 
     aero_model = pyf16.AerodynamicModel("./models/f16_model")
@@ -149,9 +144,12 @@ if __name__ == "__main__":
         "tol": 1e-3,
         "log_interval": 1000,
     }
-    # solver = ProjectionGradientDescentSolver(**solver_option)
-    solver = MomentumGradientDescentSolver(**solver_option)
-    # solver = AdamSolver(**solver_option)
+
+    histories = {"pgd": [], "mgd": []}
+    gradient_histories = {"pgd": [], "mgd": []}
+
+    solver = ProjectionGradientDescentSolver(**solver_option)
+
     mpc = MPC(
         discrete_linear_model,
         Q,
@@ -166,13 +164,6 @@ if __name__ == "__main__":
         prediction_horizon=30,
     )
 
-    if is_render:
-        render = F16TcpRender(50, "192.168.192.1", 15000)
-        is_connected = render.get()
-        if not is_connected:
-            raise ConnectionError("Failed to connect to tcp server")
-        outputs = []
-
     for i in range(400):
         if i % 50 == 0 and i != 0:
             linear_model = F16LinearModel(
@@ -184,7 +175,7 @@ if __name__ == "__main__":
             mpc.update_model(discrete_linear_model)
 
         u0 = np.stack([controls[-1]] * mpc.prediction_horizon)
-        control, _, _ = mpc.solve(states[-1], u0)
+        control, history, gradient_history = mpc.solve(states[-1], u0)
         controls.append(control)
 
         core_output = f16.update(
@@ -192,37 +183,105 @@ if __name__ == "__main__":
         )
         states.append(np.array(core_output.state.to_list()))
 
-        if is_render:
-            # for render
-            state_array = np.array(core_output.state.to_list())
-            angle_indices = [3, 4, 5, 7, 9, 10, 11]
-            state_array[angle_indices] = np.rad2deg(state_array[angle_indices])
-            state = state_array.tolist()
+        histories["pgd"].append(history[-1])
+        gradient_histories["pgd"].append(gradient_history[-1])
 
-            # ft to m
-            state[0] *= 0.3048
-            state[1] *= 0.3048
-            state[2] *= 0.3048
-            control = core_output.control.to_list()
-            control[0], control[3] = control[3], control[0]
-            control[1], control[2] = control[2], control[1]
-            state_extend = core_output.state_extend.to_list()
-            output = {"state": state, "control": control, "state_extend": state_extend}
-            render.render(output)
-            # outputs.append(output)
+    f16.delete_model()
+
+    f16 = pyf16.PlaneBlock(
+        pyf16.SolverType.RK4,
+        0.01,
+        aero_model,
+        pyf16.CoreInit(init_state, init_control),
+        [0, 0, 0],
+        control_limits,
+    )
+    linear_model = F16LinearModel(
+        f16,
+        np.array(init_state.to_list()),
+        np.array(init_control.to_list()),
+    )
+    discrete_linear_model = DiscreteF16LinearModel(linear_model)
+    solver = MomentumGradientDescentSolver(**solver_option)
+
+    mpc = MPC(
+        discrete_linear_model,
+        Q,
+        R,
+        P,
+        C,
+        solver,
+        u_min,
+        u_max,
+        y_min,
+        y_max,
+        prediction_horizon=30,
+    )
+
+    for i in range(1000):
+        if i % 50 == 0 and i != 0:
+            linear_model = F16LinearModel(
+                f16,
+                states[-1],
+                controls[-1],
+            )
+            discrete_linear_model = DiscreteF16LinearModel(linear_model)
+            mpc.update_model(discrete_linear_model)
+
+        u0 = np.stack([controls[-1]] * mpc.prediction_horizon)
+        control, history, gradient_history = mpc.solve(states[-1], u0)
+        controls.append(control)
+
+        core_output = f16.update(
+            pyf16.Control.from_list(controls[-1].tolist()), 0.01 * i
+        )
+        states.append(np.array(core_output.state.to_list()))
+
+        histories["mgd"].append(history[-1])
+        gradient_histories["mgd"].append(gradient_history[-1])
 
     f16.delete_model()
     aero_model.uninstall()
 
-    # render = F16TcpRender(50, "192.168.192.1", 15000)
-    # is_connected = render.get()
-    # if not is_connected:
-    #     raise ConnectionError("Failed to connect to tcp server")
+    # Plot optimization objective values and gradient values for both solvers
+    def plot_optimization_histories(histories, gradient_histories, solver_names):
+        sns.set_theme(style="whitegrid")
+        fig, axes = plt.subplots(2, 1, figsize=(12, 10))
 
-    # for output in outputs:
-    #     render.render(output)
+        for solver_name in solver_names:
+            objective_values = histories[solver_name.lower()]
+            sns.lineplot(
+                x=range(len(objective_values)),
+                y=objective_values,
+                ax=axes[0],
+                label=solver_name,
+            )
 
-    if is_render:
-        render.close()
+        axes[0].set_title("Optimization Objective Values")
+        axes[0].set_xlabel("Iteration")
+        axes[0].set_ylabel("Objective Value")
+        axes[0].legend()
 
-    plot(states, controls)
+        for solver_name in solver_names:
+            gradient_norms = gradient_histories[solver_name.lower()]
+            sns.lineplot(
+                x=range(len(gradient_norms)),
+                y=gradient_norms,
+                ax=axes[1],
+                label=solver_name,
+            )
+
+        axes[1].set_title("Gradient Norms")
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Gradient Norm")
+        axes[1].legend()
+
+        fig.tight_layout()
+        plt.show()
+
+    # Collect histories and gradient histories for both solvers
+    all_histories = histories
+    all_gradient_histories = gradient_histories
+    solver_names = ["pgd", "mgd"]
+
+    plot_optimization_histories(all_histories, all_gradient_histories, solver_names)

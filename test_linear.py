@@ -43,7 +43,7 @@ if __name__ == "__main__":
     linear_states = [np.array(trim_result.state.to_list())]
     discrete_linear_states = [np.array(trim_result.state.to_list())]
     control = trim_result.control
-    control = pyf16.Control(2109, -2, 0, 5)
+    control = pyf16.Control(2109, 0, 2, 2)
     control_ndarray = np.array(control.to_list())
     for i in range(1000):
         core_output = f16.update(control, 0.01 * i)
@@ -101,6 +101,7 @@ if __name__ == "__main__":
             data=df_discrete_linear_states[state],
             label="Discrete Linear Model",
             ax=axes[i],
+            linestyle="--",
         )
         axes[i].set_title(f"State: {state}")
         axes[i].set_xlabel("Time Step")
